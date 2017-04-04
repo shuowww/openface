@@ -34,8 +34,8 @@ openfaceModelDir = os.path.join(modelDir, 'openface')
 
 
 
-#return a dictionary of aligned faces.
-def alignAndforward(fromDir, align):
+#return samples and labels of images in a directory.
+def alignAndforwardDir(fromDir, align):
 
     imgs = list(iterImgs(fromDir))
 
@@ -61,14 +61,42 @@ def alignAndforward(fromDir, align):
                 print("  + Unable to align.")
 
             if alignedFace is not None:
-                if args.verbose:
-                    print("  + Writing aligned file to disk.")
                 imageclass = imgObject.cls
                 labels.append(imageclass)
                 samples.append(net.forward(alignedFace))
     return samples, labels
 
+#return a sample of a single image.
+def alignAndforwardSingle(imgPath):
+
+    start = time.time()
+
+    bgrImg = cv2.imread(imgPath)
+    if bgrImg is None:
+        raise Exception("Unable to load image: {}".format(imgPath))
+
+    landmarkIndices = openface.AlignDlib.OUTER_EYES_AND_NOSE
+
+    rgb = cv2.cvtColor(bgrImg, cv2.COLOR_BGR2RGB)
+
+    if rgb is None:
+        if args.verbose:
+            print("  + Unable to load.")
+        alignedFace = None
+    else:
+        alignedFace = align.align(96, rgb,
+                             landmarkIndices=landmarkIndices,
+                             skipMulti=True)
+        if alignedFace is None and args.verbose:
+            print("  + Unable to align.")
+
+        if alignedFace is not None:
+            rep = net.forward(alignedFace)
+            print("Forwarding took {} seconds".format(time.time() - start))
+            return rep
+
 def train(samples_l, labels_l):
+    start = time.time()
     le = LabelEncoder().fit(labels_l)
     labelsNum = le.transform(labels)
     nClasses = len(le.classes_)
@@ -78,9 +106,34 @@ def train(samples_l, labels_l):
     clf.fit(samples_l, labelsNum)
 
     fName = "{}/myclassifier.pkl".format(fileDir)
+    print("Training took {} seconds.".format(time.time() -start))
     print("Saving my classifier to '{}'".format(fName))
     with open(fName, 'w') as f:
         pickle.dump((le, clf), f)
+
+def infer(args):
+    with open(args.classifierModel, 'r') as f:
+        (le, clf) = pickle.load(f)
+
+    for img in args.imgs:
+        print("\n=== {} ===".format(img))
+        rep = alignAndforwardSingle(img)
+
+        rep = rep.reshape(1, -1)
+
+        start = time.time()
+        predictions = clf.predict_proba(rep).ravel()
+        maxI = np.argmax(predictions)
+        person = le.inverse_transform(maxI)
+        confidence = predictions[maxI]
+        if args.verbose:
+            print("Prediction took {} seconds.".format(time.time() - start))
+
+        print("Predict {} with {:.2f} confidence.".format(person, confidence))
+
+        if isinstance(clf, GMM):
+            dist = np.linalg.norm(rep - clf.means_[maxI])
+            print("  + Distance from the mean: {}".format(dist))
 
 if __name__ == '__main__':
 
@@ -117,8 +170,6 @@ if __name__ == '__main__':
         help='The Python pickle representing the classifier. This is NOT the Torch network model, which can be set with --networkModel.')
     inferParser.add_argument('imgs', type=str, nargs='+',
                              help="Input image.")
-    inferParser.add_argument('--multi', help="Infer multiple faces in image",
-                             action="store_true")
 
     args = parser.parse_args()
     if args.verbose:
@@ -151,4 +202,4 @@ Use `--networkModel` to set a non-standard Torch network model.""")
         samples, labels = alignAndforward(args.imageDir, align)
         train(samples, labels)
     elif args.mode == 'infer':
-        infer(args, args.multi)
+        infer(args)
