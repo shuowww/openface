@@ -28,7 +28,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.naive_bayes import GaussianNB
 
 fileDir = os.path.dirname(os.path.realpath(__file__))
-modelDir = os.path.join(fileDir, '..', 'models')
+modelDir = os.path.join(fileDir, 'models')
 dlibModelDir = os.path.join(modelDir, 'dlib')
 openfaceModelDir = os.path.join(modelDir, 'openface')
 
@@ -44,7 +44,8 @@ def alignAndforward(fromDir, align):
 
     landmarkIndices = openface.AlignDlib.OUTER_EYES_AND_NOSE
 
-    repDict = {}
+    samples = []
+    labels = []
 
     for imgObject in imgs:
         rgb = imgObject.getRGB()
@@ -63,13 +64,23 @@ def alignAndforward(fromDir, align):
                 if args.verbose:
                     print("  + Writing aligned file to disk.")
                 imageclass = imgObject.cls
-                if repDict.has_key(imageclass):
-                    repDict[imageclass].append(net.forward(alignedFace))
-                else:
-                    repDict[imageclass] = [net.forward(alignedFace)]
-    return repDict
+                labels.append(imageclass)
+                samples.append(net.forward(alignedFace))
+    return samples, labels
 
+def train(samples_l, labels_l):
+    le = LabelEncoder().fit(labels_l)
+    labelsNum = le.transform(labels)
+    nClasses = len(le.classes_)
+    print("Training for {} classes.".format(nClasses))
 
+    clf = SVC(C=1, kernel='linear', probability=True)
+    clf.fit(samples_l, labelsNum)
+
+    fName = "{}/myclassifier.pkl".format(fileDir)
+    print("Saving my classifier to '{}'".format(fName))
+    with open(fName, 'w') as f:
+        pickle.dump((le, clf), f)
 
 if __name__ == '__main__':
 
@@ -130,14 +141,14 @@ Use `--networkModel` to set a non-standard Torch network model.""")
     align = openface.AlignDlib(os.path.join(dlibModelDir, "shape_predictor_68_face_landmarks.dat"))
     net = openface.TorchNeuralNet(os.path.join(
         openfaceModelDir,
-        'nn4.small2.v1.t7'), imgDim=96, cuda=True)
+        'nn4.small2.v1.t7'), imgDim=96, cuda=False)
 
     if args.verbose:
         print("Loading the dlib and OpenFace models took {} seconds.".format(time.time() - start))
         start = time.time()
 
     if args.mode == 'train':
-        repDict = alignAndforward(imageDir, align)
-        train()
+        samples, labels = alignAndforward(args.imageDir, align)
+        train(samples, labels)
     elif args.mode == 'infer':
         infer(args, args.multi)
