@@ -5,6 +5,7 @@ import sys
 
 import simple_classifier
 
+import time
 from PyQt4 import QtGui
 from PyQt4 import QtCore
 
@@ -21,7 +22,7 @@ class OpenCVQImage(QtGui.QImage):
 
 class CameraDevice(QtCore.QObject):
 
-    _DEFAULT_FPS = 30
+    _DEFAULT_FPS = 20
 
     newFrame = QtCore.pyqtSignal(np.ndarray)
 
@@ -68,12 +69,13 @@ class CameraWidget(QtGui.QWidget):
 
     newFrame = QtCore.pyqtSignal(np.ndarray)
 
-    predictFrame = QtCore.pyqtSignal(np.ndarray)
+    alFrame = QtCore.pyqtSignal(np.ndarray)
 
     def __init__(self, cameraDevice, parent=None):
         super(CameraWidget, self).__init__(parent)
 
         self._frame = None
+        self._count = 0
 
         self._cameraDevice = cameraDevice
         self._cameraDevice.newFrame.connect(self._onNewFrame)
@@ -86,7 +88,10 @@ class CameraWidget(QtGui.QWidget):
     def _onNewFrame(self, frame):
         self._frame = frame.copy()
         self.newFrame.emit(self._frame)
-        self.predictFrame.emit(self._frame)
+        self._count += 1
+        if self._count == 15:
+            self.alFrame.emit(self._frame)
+            self._count = 0
         self.update()
 
     def changeEvent(self, e):
@@ -106,31 +111,78 @@ class wholeWidget(QtGui.QWidget):
     def __init__(self, camWidget):
         super(wholeWidget, self).__init__()
         self._camWidget = camWidget
-        self.initUI()
 
-    def initUI(self):
-        grid = QtGui.QGridLayout()
-        grid.setSpacing(5)
+        self._grid = QtGui.QGridLayout()
+        self._grid.setSpacing(5)
 
-        predictBtt = QtGui.QPushButton("predict")
-        predictBtt.clicked.connect(self._predictFunc)
-        trainBtt = QtGui.QPushButton("train")
-        grid.addWidget(predictBtt, 0, 0)
-        grid.addWidget(trainBtt, 0, 1)
+        self._predictBtt = QtGui.QPushButton("predict")
+        self._predictBtt.clicked.connect(self._predictFunc)
 
-        grid.addWidget(self._camWidget, 1, 0, 5, 2)
+        self._trainBtt = QtGui.QPushButton("train")
+        self._trainBtt.clicked.connect(self._trainFunc)
+        self._count = 0
+        self._trainList = []
+        self._trainPerson = None
 
-        self.setLayout(grid)
+        self._grid.addWidget(self._predictBtt, 0, 0, 1, 1)
+        self._grid.addWidget(self._trainBtt, 0, 1, 1, 1)
+
+        self._grid.addWidget(self._camWidget, 1, 0, 5, 2)
+
+        self._infoBar = QtGui.QLineEdit()
+        self._grid.addWidget(self._infoBar, 6, 0, 1, 2)
+
+        self.setLayout(self._grid)
 
         self.setGeometry(300, 300, 350, 300)
 
-    @Qtcore.pyqtSlot()
+    @QtCore.pyqtSlot()
     def _predictFunc(self):
-        self._camWidget.predictFrame.connect(_prect)
+        try:
+            self._camWidget.alFrame.disconnect()
+        except Exception:
+            pass
+        self._camWidget.alFrame.connect(self._predict)
 
-    @Qtcore.pyqtSlot(np.ndarray)
+    @QtCore.pyqtSlot(np.ndarray)
     def _predict(self, predictFrame):
+        rgb = cv2.cvtColor(predictFrame, cv2.COLOR_BGR2RGB)
+        ret = simple_classifier.infer(rgb)
+        if not ret:
+            self._infoBar.setText("can't recognize!")
+        else:
+            self._infoBar.setText("It's {}. (confidence:{})".format(ret[0], ret[1]))
 
+    @QtCore.pyqtSlot()
+    def _trainFunc(self):
+        try:
+            self._camWidget.alFrame.disconnect()
+        except Exception:
+            pass
+        self._camWidget.alFrame.connect(self._train)
+        self._infoBar.clear()
+        self._infoBar.returnPressed.connect(self._receiveName)
+
+
+    @QtCore.pyqtSlot(np.ndarray)
+    def _train(self, trainFrame):
+        if not self._trainPerson:
+            return
+        self._infoBar.setText("training{}".format('.' * self._count))
+        rgb = cv2.cvtColor(trainFrame, cv2.COLOR_BGR2RGB)
+        self._trainList.append(rgb)
+        self._count += 1
+        if self._count == 8:
+            self._infoBar.setText("fitting the model...")
+            simple_classifier.train(self._trainList, self._trainPerson)
+            self._infoBar.setText("training completed!")
+            self._count = 0
+            self._trainPerson = None
+            self._trainList = []
+
+    @QtCore.pyqtSlot()
+    def _receiveName(self):
+        self._trainPerson = unicode(self._infoBar.text().toUtf8(), 'utf-8', 'ignore')
 
 def main():
 
