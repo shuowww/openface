@@ -62,22 +62,34 @@ def alignAndforwardMulti(rgbs, name):
     data = np.concatenate((labels.T, samples), axis=1)
     return data
 
-#return a sample of a single image.
+#return a sample of a single image with multiple faces detection.
 def alignAndforwardSingle(rgb):
 
-    start = time.time()
     landmarkIndices = openface.AlignDlib.OUTER_EYES_AND_NOSE
 
-    alignedFace = align.align(96, rgb,
-                         landmarkIndices=landmarkIndices,
-                         skipMulti=True)
-    if alignedFace is None:
-        print("  + Unable to align.")
+    bbs = align.getAllFaceBoundingBoxes(rgb)
 
-    if alignedFace is not None:
-        rep = net.forward(alignedFace)
-        print("Forwarding took {} seconds".format(time.time() - start))
-        return rep
+    if len(bbs) == 0:
+        raise Exception("Unable to find a face: {}".format(imgPath))
+
+    reps = []
+    for bb in bbs:
+         start = time.time()
+         alignedFace = align.align(
+             96,
+             rgb,
+             bb,
+             landmarkIndices=openface.AlignDlib.OUTER_EYES_AND_NOSE)
+         if alignedFace is None:
+             raise Exception("Unable to align image")
+
+         start = time.time()
+         rep = net.forward(alignedFace)
+         print("Neural network forward pass took {} seconds.".format(
+                 time.time() - start))
+         reps.append((bb.center().x, bb.center().y, bb.width(), rep))
+    sreps = sorted(reps, key=lambda x: (x[0], x[1]))
+    return sreps
 
 def train(rgbs, name):
     start = time.time()
@@ -117,16 +129,20 @@ def infer(img):
     with open("myclassifier.pkl", 'r') as f:
         (le, clf) = pickle.load(f)
 
-    rep = alignAndforwardSingle(img)
+    sreps = alignAndforwardSingle(img)
 
-    rep = rep.reshape(1, -1)
-
-    predictions = clf.predict_proba(rep).ravel()
-    maxI = np.argmax(predictions)
-    person = le.inverse_transform(maxI)
-    confidence = predictions[maxI]
-
-    if confidence < 0.5:
-        return None
-    else:
-        return (person, confidence)
+    persons = []
+    for rep in sreps:
+        px = rep[0]
+        py = rep[1]
+        wid = rep[2]
+        rep = rep[3].reshape(1, -1)
+        predictions = clf.predict_proba(rep).ravel()
+        maxI = np.argmax(predictions)
+        person = le.inverse_transform(maxI)
+        confidence = predictions[maxI]
+        if confidence < 0.5:
+            persons.append(("unknown", px, py, wid))
+        else:
+            persons.append((person, px, py, wid))
+    return persons

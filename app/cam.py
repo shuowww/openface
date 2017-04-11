@@ -67,8 +67,6 @@ class CameraDevice(QtCore.QObject):
 
 class CameraWidget(QtGui.QWidget):
 
-    newFrame = QtCore.pyqtSignal(np.ndarray)
-
     alFrame = QtCore.pyqtSignal(np.ndarray)
 
     def __init__(self, cameraDevice, parent=None):
@@ -76,6 +74,7 @@ class CameraWidget(QtGui.QWidget):
 
         self._frame = None
         self._count = 0
+        self._persons = None
 
         self._cameraDevice = cameraDevice
         self._cameraDevice.newFrame.connect(self._onNewFrame)
@@ -87,12 +86,16 @@ class CameraWidget(QtGui.QWidget):
     @QtCore.pyqtSlot(np.ndarray)
     def _onNewFrame(self, frame):
         self._frame = frame.copy()
-        self.newFrame.emit(self._frame)
         self._count += 1
-        if self._count == 15:
+        if self._count == 12:
             self.alFrame.emit(self._frame)
             self._count = 0
+
         self.update()
+
+    @QtCore.pyqtSlot(list)
+    def updateRecLoc(self, persons):
+        self._persons = persons
 
     def changeEvent(self, e):
         if e.type() == QtCore.QEvent.EnabledChange:
@@ -104,10 +107,20 @@ class CameraWidget(QtGui.QWidget):
     def paintEvent(self, e):
         if self._frame is None:
             return
+        if self._persons:
+            for person in self._persons:
+                name, px, py, wid = person
+                hw = wid / 2
+                cv2.rectangle(self._frame, (px-hw,py-hw), (px+hw,py+hw), (55,255,155), 5)
+                tx = px - hw
+                ty = py + hw + hw / 3
+                cv2.putText(self._frame, name,  (tx,ty), 2, 2, (55,255,155),2)
         painter = QtGui.QPainter(self)
         painter.drawImage(QtCore.QPoint(0, 0), OpenCVQImage(self._frame))
 
 class wholeWidget(QtGui.QWidget):
+    fbInfo = QtCore.pyqtSignal(list)
+
     def __init__(self, camWidget):
         super(wholeWidget, self).__init__()
         self._camWidget = camWidget
@@ -129,6 +142,8 @@ class wholeWidget(QtGui.QWidget):
 
         self._grid.addWidget(self._camWidget, 1, 0, 5, 2)
 
+        self.fbInfo.connect(self._camWidget.updateRecLoc)
+
         self._infoBar = QtGui.QLineEdit()
         self._grid.addWidget(self._infoBar, 6, 0, 1, 2)
 
@@ -147,11 +162,10 @@ class wholeWidget(QtGui.QWidget):
     @QtCore.pyqtSlot(np.ndarray)
     def _predict(self, predictFrame):
         rgb = cv2.cvtColor(predictFrame, cv2.COLOR_BGR2RGB)
-        ret = simple_classifier.infer(rgb)
-        if not ret:
-            self._infoBar.setText("can't recognize!")
-        else:
-            self._infoBar.setText("It's {}. (confidence:{})".format(ret[0], ret[1]))
+        persons = simple_classifier.infer(rgb)
+        self.fbInfo.emit(persons)
+                #self._infoBar.setText("can't recognize!")
+                #self._infoBar.setText("It's {}. (confidence:{})".format(ret[0], ret[1]))
 
     @QtCore.pyqtSlot()
     def _trainFunc(self):
