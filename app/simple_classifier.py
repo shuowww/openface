@@ -69,9 +69,6 @@ def alignAndforwardSingle(rgb):
 
     bbs = align.getAllFaceBoundingBoxes(rgb)
 
-    if len(bbs) == 0:
-        raise Exception("Unable to find a face: {}".format(imgPath))
-
     reps = []
     for bb in bbs:
          start = time.time()
@@ -109,7 +106,6 @@ def train(rgbs, name):
     le = LabelEncoder().fit(labels)
     labelsNum = le.transform(labels)
     nClasses = len(le.classes_)
-    #print("Training for {} classes.".format(nClasses))
 
     clf = SVC(C=1, kernel='linear', probability=True)
     if labelsNum.size > 1:
@@ -124,14 +120,22 @@ def train(rgbs, name):
         pickle.dump((le, clf), f)
 
 def infer(img):
+
+    sreps = alignAndforwardSingle(img)
+    persons = []
+
     if not os.path.exists("myclassifier.pkl"):
-        return None
+        for rep in sreps:
+            px = rep[0]
+            py = rep[1]
+            wid = rep[2]
+            persons.append(("unknown", px, py, wid))
+        return persons
+
     with open("myclassifier.pkl", 'r') as f:
         (le, clf) = pickle.load(f)
 
-    sreps = alignAndforwardSingle(img)
 
-    persons = []
     for rep in sreps:
         px = rep[0]
         py = rep[1]

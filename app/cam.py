@@ -164,8 +164,6 @@ class wholeWidget(QtGui.QWidget):
         rgb = cv2.cvtColor(predictFrame, cv2.COLOR_BGR2RGB)
         persons = simple_classifier.infer(rgb)
         self.fbInfo.emit(persons)
-                #self._infoBar.setText("can't recognize!")
-                #self._infoBar.setText("It's {}. (confidence:{})".format(ret[0], ret[1]))
 
     @QtCore.pyqtSlot()
     def _trainFunc(self):
@@ -173,6 +171,7 @@ class wholeWidget(QtGui.QWidget):
             self._camWidget.alFrame.disconnect()
         except Exception:
             pass
+        self.fbInfo.emit([])
         self._camWidget.alFrame.connect(self._train)
 
         text, ok = QtGui.QInputDialog.getText(self, "", "Enter your name:")
@@ -186,11 +185,10 @@ class wholeWidget(QtGui.QWidget):
     def _train(self, trainFrame):
         if not self._trainPerson:
             return
-        #self._infoBar.setText("training{}".format('.' * self._count))
         if not self._procDialog:
-            total_steps = self.TRAINING_NUM + 2
+            total_steps = self.TRAINING_NUM
             self._procDialog = QtGui.QProgressDialog("", "Cancel", 0, total_steps, self)
-            self._procDialog.setLabelText("Trainging...")
+            self._procDialog.setLabelText("Training...")
             self._procDialog.canceled.connect(self._interrTrain)
             self._procDialog.setAutoClose(False)
             self._procDialog.setAutoReset(False)
@@ -200,20 +198,9 @@ class wholeWidget(QtGui.QWidget):
         self._count += 1
         self._procDialog.setValue(self._count)
         if self._count == self.TRAINING_NUM:
-            #self._infoBar.setText("fitting the model...")
             simple_classifier.train(self._trainList, self._trainPerson)
-            #self._infoBar.setText("training completed!")
             self._procDialog.setLabelText("Training completed!")
-            self._procDialog.setValue(total_steps)
 
-            for i in xrange(100):
-                continue
-            self._procDialog.close()
-            self._procDialog = None
-
-            self._count = 0
-            self._trainPerson = None
-            self._trainList = []
 
     def receiveName(self, name):
         self._trainPerson = name
@@ -229,26 +216,11 @@ class wholeWidget(QtGui.QWidget):
 
 def main():
 
-#    @QtCore.pyqtSlot(cv.iplimage)
-#    def onNewFrame(frame):
-#        cv.CvtColor(frame, frame, cv.CV_RGB2BGR)
-#        msg = "processed frame"
-#        font = cv.InitFont(cv.CV_FONT_HERSHEY_DUPLEX, 1.0, 1.0)
-#        tsize, baseline = cv.GetTextSize(msg, font)
-#        w, h = cv.GetSize(frame)
-#        tpt = (w - tsize[0]) / 2, (h - tsize[1]) / 2
-#        cv.PutText(frame, msg, tpt, font, cv.RGB(255, 0, 0))
-
     app = QtGui.QApplication(sys.argv)
 
     cameraDevice = CameraDevice()
 
-#    cameraWidget1 = CameraWidget(cameraDevice)
-#    cameraWidget1.newFrame.connect(onNewFrame)
-#    cameraWidget1.show()
-
     cameraWidget1 = CameraWidget(cameraDevice)
-    #cameraWidget1.show()
     theWidget = wholeWidget(cameraWidget1)
     theWidget.show()
     sys.exit(app.exec_())
