@@ -120,6 +120,7 @@ class CameraWidget(QtGui.QWidget):
 
 class wholeWidget(QtGui.QWidget):
     fbInfo = QtCore.pyqtSignal(list)
+    TRAINING_NUM = 10
 
     def __init__(self, camWidget):
         super(wholeWidget, self).__init__()
@@ -137,15 +138,14 @@ class wholeWidget(QtGui.QWidget):
         self._trainList = []
         self._trainPerson = None
 
+        self._procDialog = None
+
         self._grid.addWidget(self._predictBtt, 0, 0, 1, 1)
         self._grid.addWidget(self._trainBtt, 0, 1, 1, 1)
 
         self._grid.addWidget(self._camWidget, 1, 0, 5, 2)
 
         self.fbInfo.connect(self._camWidget.updateRecLoc)
-
-        self._infoBar = QtGui.QLineEdit()
-        self._grid.addWidget(self._infoBar, 6, 0, 1, 2)
 
         self.setLayout(self._grid)
 
@@ -174,29 +174,58 @@ class wholeWidget(QtGui.QWidget):
         except Exception:
             pass
         self._camWidget.alFrame.connect(self._train)
-        self._infoBar.clear()
-        self._infoBar.returnPressed.connect(self._receiveName)
+
+        text, ok = QtGui.QInputDialog.getText(self, "", "Enter your name:")
+
+        if ok:
+            self.receiveName(str(text))
+
 
 
     @QtCore.pyqtSlot(np.ndarray)
     def _train(self, trainFrame):
         if not self._trainPerson:
             return
-        self._infoBar.setText("training{}".format('.' * self._count))
+        #self._infoBar.setText("training{}".format('.' * self._count))
+        if not self._procDialog:
+            total_steps = self.TRAINING_NUM + 2
+            self._procDialog = QtGui.QProgressDialog("", "Cancel", 0, total_steps, self)
+            self._procDialog.setLabelText("Trainging...")
+            self._procDialog.canceled.connect(self._interrTrain)
+            self._procDialog.setAutoClose(False)
+            self._procDialog.setAutoReset(False)
+            self._procDialog.show()
         rgb = cv2.cvtColor(trainFrame, cv2.COLOR_BGR2RGB)
         self._trainList.append(rgb)
         self._count += 1
-        if self._count == 8:
-            self._infoBar.setText("fitting the model...")
+        self._procDialog.setValue(self._count)
+        if self._count == self.TRAINING_NUM:
+            #self._infoBar.setText("fitting the model...")
             simple_classifier.train(self._trainList, self._trainPerson)
-            self._infoBar.setText("training completed!")
+            #self._infoBar.setText("training completed!")
+            self._procDialog.setLabelText("Training completed!")
+            self._procDialog.setValue(total_steps)
+
+            for i in xrange(100):
+                continue
+            self._procDialog.close()
+            self._procDialog = None
+
             self._count = 0
             self._trainPerson = None
             self._trainList = []
 
+    def receiveName(self, name):
+        self._trainPerson = name
+
+
     @QtCore.pyqtSlot()
-    def _receiveName(self):
-        self._trainPerson = unicode(self._infoBar.text().toUtf8(), 'utf-8', 'ignore')
+    def _interrTrain(self):
+        self._camWidget.alFrame.disconnect()
+        self._count = 0
+        self._trainPerson = None
+        self._trainList = []
+        self._procDialog = None
 
 def main():
 
