@@ -24,9 +24,10 @@ from sklearn.svm import SVC
 
 
 fileDir = os.path.dirname(os.path.realpath(__file__))
-modelDir = os.path.join(fileDir, '..','models')
-dlibModelDir = os.path.join(modelDir, 'dlib')
-openfaceModelDir = os.path.join(modelDir, 'openface')
+regDir = os.path.join(fileDir, "registeredPeople")
+modelDir = os.path.join(fileDir, "..","models")
+dlibModelDir = os.path.join(modelDir, "dlib")
+openfaceModelDir = os.path.join(modelDir, "openface")
 
 align = openface.AlignDlib(os.path.join(dlibModelDir, "shape_predictor_68_face_landmarks.dat"))
 net = openface.TorchNeuralNet(os.path.join(
@@ -35,19 +36,60 @@ net = openface.TorchNeuralNet(os.path.join(
 
 
 #return samples and labels of images in a directory.
-def alignAndforwardMulti(rgbs, name):
+def alignAndforwardDir(imgPath):
 
-    #imgs = list(iterImgs(fromDir))
+    imgs = list(iterImgs(imgPath))
 
     # Shuffle so multiple versions can be run at once.
-    #random.shuffle(imgs)
+    random.shuffle(imgs)
 
     landmarkIndices = openface.AlignDlib.OUTER_EYES_AND_NOSE
 
     samples = []
     labels = []
 
-    for rgb in rgbs:
+    for imgObject in imgs:
+        name = imgObject.cls
+        rgb = imgObject.getRGB()
+        regPic = os.path.join(regDir, "{}.jpg".format(name))
+        if not os.path.exists(regDir):
+            os.mkdir(regDir)
+        if os.path.exists(regPic) == None and rgb != None:
+            cv2.imwrite(regPic, rgb)
+        if rgb is None:
+            print("  + Unable to load.")
+            alignedFace = None
+        else:
+            alignedFace = align.align(96, rgb,
+                                 landmarkIndices=landmarkIndices,
+                                 skipMulti=True)
+            if alignedFace is None:
+                print("  + Unable to align.")
+
+            if alignedFace is not None:
+                imageclass = imgObject.cls
+                labels.append(imageclass)
+                samples.append(net.forward(alignedFace))
+    samples = np.array(samples)
+    labels = np.array([labels])
+    data = np.concatenate((labels.T, samples), axis=1)
+    return data
+
+def alignAndforwardMulti(bgrs, name):
+
+    regPic = os.path.join(regDir, "{}.jpg".format(name))
+    if not os.path.exists(regDir):
+        os.mkdir(regDir)
+    if not os.path.exists(regPic):
+        cv2.imwrite(regPic, bgrs[1])
+
+    landmarkIndices = openface.AlignDlib.OUTER_EYES_AND_NOSE
+
+    samples = []
+    labels = []
+
+    for bgr in bgrs:
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         alignedFace = align.align(96, rgb,
                              landmarkIndices=landmarkIndices,
                              skipMulti=True)
@@ -88,11 +130,35 @@ def alignAndforwardSingle(rgb):
     sreps = sorted(reps, key=lambda x: (x[0], x[1]))
     return sreps
 
-def train(rgbs, name):
+def saveReps(name, bgrs, fromDir=False, imgPath=None):
+    if not fromDir:
+        data = alignAndforwardMulti(bgrs, name)
+    else:
+        data = alignAndforwardDir(imgPath)
+    while True:
+        numname = random.randint(0, 99)
+        fName = "{}/{}.npy".format(regDir, numname)
+        if not os.path.exists(fName):
+            break
+    np.save(fName, data)
+    print "Saving representations finished."
+
+def train():
     start = time.time()
 
-    data = alignAndforwardMulti(rgbs, name)
-    fName = "{}/prev_data.npy".format(fileDir)
+    data = None
+
+    for fName in os.listdir(regDir):
+        if ".npy" in fName:
+            fPath = os.path.join(regDir, fName)
+            tmp = np.load(fPath)
+            if not data:
+                data = tmp
+            else:
+                data = np.concatenate((data, tmp), axis=0)
+            os.remove(fPath)
+
+    fName = "{}/prev.npy".format(fileDir)
     labels = data[:, 0]
     samples = data[:, 1:]
     if os.path.exists(fName):
