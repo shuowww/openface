@@ -115,6 +115,7 @@ class wholeWidget(QtGui.QWidget):
         self._grid = QtGui.QGridLayout()
         self._grid.setSpacing(6)
 
+        self._untrained = False
 
         self._count = 0
         self._trainList = []
@@ -155,25 +156,40 @@ class wholeWidget(QtGui.QWidget):
     def _sample(self, trainFrame):
         if not self._trainPerson:
             raise Exception("Haven't register persons")
-        while self._count < self.TRAINING_NUM * 5:
-            if not self._count % 5:
+        if not self._procDialog:
+            total_steps = self.TRAINING_NUM * 2
+            self._procDialog = QtGui.QProgressDialog("", "Cancel", 0, total_steps, self)
+            self._procDialog.setLabelText("Sampling...")
+            self._procDialog.canceled.connect(self._interrTrain)
+            self._procDialog.setAutoClose(False)
+            self._procDialog.setAutoReset(False)
+            self._procDialog.show()
+
+        while self._count < self.TRAINING_NUM * 2:
+            if not self._count % 2:
                 self._trainList.append(trainFrame)
             self._count += 1
+            self._procDialog.setValue(self._count)
             return
+        self._procDialog.setLabelText("Sampling completed!")
+        self._untrained = True
         simple_classifier.saveReps(self._trainPerson, self._trainList)
         self._count = 0
         self._trainPerson = None
         self._camWidget.alFrame.disconnect()
+
 
     @QtCore.pyqtSlot()
     def _fileDialog(self):
         dirName = QtGui.QFileDialog.getExistingDirectory()
         dirName = str(dirName)
         simple_classifier.saveReps("", None, True, dirName)
+        self._untrained = True
 
     @QtCore.pyqtSlot()
     def _train(self):
         simple_classifier.train()
+        self._untrained = False
 
 
     def receiveName(self, name):
@@ -182,11 +198,28 @@ class wholeWidget(QtGui.QWidget):
 
     @QtCore.pyqtSlot()
     def _interrTrain(self):
-        self._camWidget.alFrame.disconnect()
+        try:
+            self._camWidget.alFrame.disconnect()
+        except Exception:
+            pass
         self._count = 0
         self._trainPerson = None
         self._trainList = []
         self._procDialog = None
+
+    def closeEvent(self, event):
+        if self._untrained:
+            reply = QtGui.QMessageBox.question(self, "","You haven't trained all samples. Quit without saving them?",
+            QtGui.QMessageBox.Yes | QtGui.QMessageBox.No, QtGui.QMessageBox.No)
+
+            if reply == QtGui.QMessageBox.Yes:
+                for fName in os.listdir(regDir):
+                    fPath = os.path.join(regDir, fName)
+                    if ".npy" in fName:
+                        os.remove(fPath)
+                event.accept()
+            else:
+                event.ignore()
 
 def main():
 

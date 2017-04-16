@@ -152,7 +152,7 @@ def train():
         if ".npy" in fName:
             fPath = os.path.join(regDir, fName)
             tmp = np.load(fPath)
-            if not data:
+            if data == None:
                 data = tmp
             else:
                 data = np.concatenate((data, tmp), axis=0)
