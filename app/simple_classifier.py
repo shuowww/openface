@@ -5,7 +5,7 @@ import time
 
 start = time.time()
 
-import argparse
+import math
 import cv2
 import os
 import pickle
@@ -17,7 +17,7 @@ np.set_printoptions(precision=2)
 import openface
 from openface.data import iterImgs
 
-
+from sklearn import linear_model
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
 from sklearn.svm import SVC
@@ -34,6 +34,23 @@ net = openface.TorchNeuralNet(os.path.join(
     openfaceModelDir,
     'nn4.small2.v1.t7'), imgDim=96, cuda=False)
 
+def rotate_about_center(src, angle, scale=1.):
+    w = src.shape[1]
+    h = src.shape[0]
+    rangle = np.deg2rad(angle) # angle in radians
+    # now calculate new image width and height
+    nw = (abs(np.sin(rangle)*h) + abs(np.cos(rangle)*w))*scale
+    nh = (abs(np.cos(rangle)*h) + abs(np.sin(rangle)*w))*scale
+    # ask OpenCV for the rotation matrix
+    rot_mat = cv2.getRotationMatrix2D((nw*0.5, nh*0.5), angle, scale)
+    # calculate the move from the old center to the new center combined
+    # with the rotation
+    rot_move = np.dot(rot_mat, np.array([(nw-w)*0.5, (nh-h)*0.5,0]))
+    # the move only affects the translation, so update the translation
+    # part of the transform
+    rot_mat[0,2] += rot_move[0]
+    rot_mat[1,2] += rot_move[1]
+    return cv2.warpAffine(src, rot_mat, (int(math.ceil(nw)), int(math.ceil(nh))), flags=cv2.INTER_LANCZOS4)
 
 #return samples and labels of images in a directory.
 def alignAndforwardDir(imgPath):
@@ -58,18 +75,51 @@ def alignAndforwardDir(imgPath):
             cv2.imwrite(regPic, rgb)
         if rgb is None:
             print("  + Unable to load.")
-            alignedFace = None
+            alignedFace1 = None
+            alignedFace2 = None
         else:
-            alignedFace = align.align(96, rgb,
-                                 landmarkIndices=landmarkIndices,
-                                 skipMulti=True)
-            if alignedFace is None:
-                print("  + Unable to align.")
+            if len(imgs) <= 3:
+                rgb1 = rgb
+                rgb2 = rotate_about_center(rgb, 10)
+                rgb3 = rotate_about_center(rgb, 350)
+                alignedFace1 = align.align(96, rgb1, landmarkIndices=landmarkIndices, skipMulti=True)
+                alignedFace2 = align.align(96, rgb2, landmarkIndices=landmarkIndices, skipMulti=True)
 
-            if alignedFace is not None:
-                imageclass = imgObject.cls
-                labels.append(imageclass)
-                samples.append(net.forward(alignedFace))
+                alignedFace3 = align.align(96, rgb3, landmarkIndices=landmarkIndices, skipMulti=True)
+
+                if alignedFace1 is None:
+                    print("  + Unable to align.")
+
+                if alignedFace1 is not None:
+                    imageclass = imgObject.cls
+                    labels.append(imageclass)
+                    samples.append(net.forward(alignedFace1))
+
+                if alignedFace2 is None:
+                    print("  + Unable to align2.")
+
+                if alignedFace2 is not None:
+                    imageclass = imgObject.cls
+                    labels.append(imageclass)
+                    samples.append(net.forward(alignedFace2))
+
+                if alignedFace3 is None:
+                    print("  + Unable to align3.")
+
+                if alignedFace3 is not None:
+                    imageclass = imgObject.cls
+                    labels.append(imageclass)
+                    samples.append(net.forward(alignedFace3))
+            else:
+                alignedFace = align.align(96, rgb, landmarkIndices=landmarkIndices, skipMulti=True)
+                if alignedFace is None:
+                    print("  + Unable to align.")
+
+                if alignedFace is not None:
+                    imageclass = imgObject.cls
+                    labels.append(imageclass)
+                    samples.append(net.forward(alignedFace))
+
     samples = np.array(samples)
     labels = np.array([labels])
     data = np.concatenate((labels.T, samples), axis=1)
@@ -114,11 +164,7 @@ def alignAndforwardSingle(rgb):
     reps = []
     for bb in bbs:
          start = time.time()
-         alignedFace = align.align(
-             96,
-             rgb,
-             bb,
-             landmarkIndices=openface.AlignDlib.OUTER_EYES_AND_NOSE)
+         alignedFace = align.align(96, rgb, bb, landmarkIndices=openface.AlignDlib.OUTER_EYES_AND_NOSE)
          if alignedFace is None:
              raise Exception("Unable to align image")
 
@@ -152,7 +198,7 @@ def train():
         if ".npy" in fName:
             fPath = os.path.join(regDir, fName)
             tmp = np.load(fPath)
-            if data == None:
+            if data is None:
                 data = tmp
             else:
                 data = np.concatenate((data, tmp), axis=0)
@@ -173,7 +219,9 @@ def train():
     labelsNum = le.transform(labels)
     nClasses = len(le.classes_)
 
-    clf = SVC(C=1, kernel='linear', probability=True)
+    clf = linear_model.LogisticRegression()
+
+    #clf = SVC(C=1, kernel='linear', probability=True)
     if labelsNum.size > 1:
         clf.fit(samples, labelsNum)
     else:
@@ -211,8 +259,9 @@ def infer(img):
         maxI = np.argmax(predictions)
         person = le.inverse_transform(maxI)
         confidence = predictions[maxI]
-        if confidence < 0.5:
+        if confidence < 0.7:
             persons.append(("unknown", px, py, wid))
         else:
             persons.append((person, px, py, wid))
+            print "predict {} with {} confidence".format(person, confidence)
     return persons

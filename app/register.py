@@ -22,7 +22,7 @@ class OpenCVQImage(QtGui.QImage):
 
 class CameraDevice(QtCore.QObject):
 
-    _DEFAULT_FPS = 20
+    _DEFAULT_FPS = 30
 
     newFrame = QtCore.pyqtSignal(np.ndarray)
 
@@ -106,7 +106,7 @@ class CameraWidget(QtGui.QWidget):
         painter.drawImage(QtCore.QPoint(0, 0), OpenCVQImage(self._frame))
 
 class wholeWidget(QtGui.QWidget):
-    TRAINING_NUM = 12
+    TRAINING_NUM = 25
 
     def __init__(self, camWidget):
         super(wholeWidget, self).__init__()
