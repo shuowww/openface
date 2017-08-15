@@ -358,6 +358,7 @@ if __name__ == "__main__":
     for clfname, dummy in clfname_clf.items():
         f.write("Average accuracy for {} is {}.".format(clfname, clf_accuracy[clfname]) + "\n")
 
+
     for clfname, dummy in clfname_clf.items():
         f.write("Average training time for {} is {}.".format(clfname, clf_training_time[clfname]) + "\n")
 
